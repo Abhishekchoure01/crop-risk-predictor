@@ -108,3 +108,7 @@ class CropYieldLossModel:
             raise ValueError("Model must be fitted before accessing intercept.")
         
         return self.model.intercept_
+
+
+# Alias for compatibility
+CropRiskModel = CropYieldLossModel
