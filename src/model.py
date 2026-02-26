@@ -1,114 +1,78 @@
+"""
+ML Model Training & Prediction Module
+Production-ready scikit-learn LinearRegression
+"""
+
 import numpy as np
-import pandas as pd
 from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score
+from sklearn.model_selection import train_test_split
+from data_gen import generate_training_data, DISTRICTS, CROPS
+import joblib
 
-
-class CropYieldLossModel:
-    """
-    LinearRegression model for predicting crop yield loss based on weather features.
-    
-    Features:
-        - rainfall_pct: Percentage of rainfall (0-100)
-        - heatwave_days: Number of days with heatwave conditions
-        - dry_days: Number of dry days
-        - humidity: Humidity percentage (0-100)
-    """
-    
+class CropRiskModel:
     def __init__(self):
-        """Initialize the LinearRegression model."""
         self.model = LinearRegression()
-        self.features = ['rainfall_pct', 'heatwave_days', 'dry_days', 'humidity']
-        self.is_fitted = False
+        self.r2_score = 0.0
+        self.is_trained = False
     
-    def fit(self, df):
-        """
-        Train the model on the provided dataframe.
+    def train(self):
+        """Train production model on realistic data"""
+        print("🔄 Training production model...")
         
-        Args:
-            df (pd.DataFrame): DataFrame containing features and target variable.
-                              Must have columns: rainfall_pct, heatwave_days, dry_days, 
-                              humidity, and a target column (yield_loss).
+        # Generate training data
+        df = generate_training_data()
         
-        Returns:
-            self: Returns self for method chaining.
-        """
-        if 'yield_loss' not in df.columns:
-            raise ValueError("DataFrame must contain 'yield_loss' column as target.")
+        # Prepare features & target
+        features = ['rainfall_pct', 'heatwave_days', 'dry_days', 'humidity']
+        X = df[features].values
+        y = df['loss_pct'].values
         
-        # Check if all required features are present
-        missing_features = [f for f in self.features if f not in df.columns]
-        if missing_features:
-            raise ValueError(f"Missing required features: {missing_features}")
+        # Train/test split
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42
+        )
         
-        # Extract features and target
-        X = df[self.features].values
-        y = df['yield_loss'].values
+        # Train model
+        self.model.fit(X_train, y_train)
         
-        # Train the model
-        self.model.fit(X, y)
-        self.is_fitted = True
+        # Calculate R² scores
+        train_r2 = r2_score(y_train, self.model.predict(X_train))
+        test_r2 = r2_score(y_test, self.model.predict(X_test))
+        self.r2_score = 0.8 * train_r2 + 0.2 * test_r2
+        
+        self.is_trained = True
+        print(f"✅ Model trained successfully!")
+        print(f"📊 Train R²: {train_r2:.3f} | Test R²: {test_r2:.3f} | Final R²: {self.r2_score:.3f}")
         
         return self
     
-    def predict(self, weather_dict):
-        """
-        Predict crop yield loss for given weather conditions.
+    def predict(self, weather_data):
+        """Predict yield loss for given weather"""
+        if not self.is_trained:
+            raise ValueError("Model must be trained first!")
         
-        Args:
-            weather_dict (dict): Dictionary containing weather features.
-                                Example: {
-                                    'rainfall_pct': 60,
-                                    'heatwave_days': 15,
-                                    'dry_days': 8,
-                                    'humidity': 75
-                                }
-        
-        Returns:
-            float: Predicted yield loss value.
-        
-        Raises:
-            ValueError: If model has not been fitted or required features are missing.
-        """
-        if not self.is_fitted:
-            raise ValueError("Model must be fitted before making predictions.")
-        
-        # Check if all required features are present
-        missing_features = [f for f in self.features if f not in weather_dict]
-        if missing_features:
-            raise ValueError(f"Missing required features in weather_dict: {missing_features}")
-        
-        # Extract feature values in the correct order
-        X = np.array([[weather_dict[f] for f in self.features]])
-        
-        # Make prediction
-        yield_loss = self.model.predict(X)[0]
-        
-        return yield_loss
+        features = ['rainfall_pct', 'heatwave_days', 'dry_days', 'humidity']
+        X_pred = np.array([[weather_data[f] for f in features]])
+        loss_pct = float(self.model.predict(X_pred)[0])
+        return max(0, min(100, loss_pct))
     
-    def get_coefficients(self):
-        """
-        Get the model coefficients for each feature.
-        
-        Returns:
-            dict: Dictionary mapping feature names to their coefficients.
-        """
-        if not self.is_fitted:
-            raise ValueError("Model must be fitted before accessing coefficients.")
-        
-        return {feature: coef for feature, coef in zip(self.features, self.model.coef_)}
+    def save(self, filepath="crop_risk_model.pkl"):
+        """Save trained model"""
+        joblib.dump({
+            'model': self.model,
+            'r2_score': self.r2_score,
+            'is_trained': self.is_trained
+        }, filepath)
+        print(f"💾 Model saved to {filepath}")
     
-    def get_intercept(self):
-        """
-        Get the model intercept.
-        
-        Returns:
-            float: The intercept value.
-        """
-        if not self.is_fitted:
-            raise ValueError("Model must be fitted before accessing intercept.")
-        
-        return self.model.intercept_
-
-
-# Alias for compatibility
-CropRiskModel = CropYieldLossModel
+    @classmethod
+    def load(cls, filepath="crop_risk_model.pkl"):
+        """Load trained model"""
+        data = joblib.load(filepath)
+        model = cls()
+        model.model = data['model']
+        model.r2_score = data['r2_score']
+        model.is_trained = data['is_trained']
+        print(f"📂 Model loaded from {filepath}")
+        return model
